@@ -1,0 +1,10 @@
+name: hello
+on:
+  workflow_dispatch:        # lets you run it manually from the Actions tab
+jobs:
+  say-hello: 
+    runs-on: ubuntu-latest  # a free, ephemeral Linux runner
+    steps:
+      - uses: actions/checkout@v4
+      - name: Print
+        run: echo "Hello from CI/CD"
