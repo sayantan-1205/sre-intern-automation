@@ -1,0 +1,90 @@
+name: provision-vm
+on:
+  repository_dispatch:
+    types: [provision_vm]
+  workflow_dispatch:
+    inputs:
+      ritm_number:
+        description: 'RITM Number'
+        required: true
+        type: string
+      vm_name:
+        description: 'VM Name'
+        required: false
+        type: string
+      vm_size:
+        description: 'VM Size'
+        required: false
+        type: string
+        default: 'Standard_B1s'
+      region:
+        description: 'Region'
+        required: false
+        type: string
+        default: 'centralindia'
+permissions:
+  contents: read
+env:
+  SNOW_INSTANCE: ${{ secrets.SNOW_INSTANCE }}
+  SNOW_USER: ${{ secrets.SNOW_USER }}
+  SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+  ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+  ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+jobs:
+  provision:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r track-A-vm-provisioning/scripts/requirements.txt
+      - name: Resolve Inputs
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "RITM_NUMBER=${{ github.event.client_payload.ritm_number }}" >> $GITHUB_ENV
+            echo "VM_NAME=${{ github.event.client_payload.vm_name }}" >> $GITHUB_ENV
+            echo "VM_SIZE=${{ github.event.client_payload.vm_size }}" >> $GITHUB_ENV
+            echo "REGION=${{ github.event.client_payload.region }}" >> $GITHUB_ENV
+          else
+            echo "RITM_NUMBER=${{ inputs.ritm_number }}" >> $GITHUB_ENV
+            echo "VM_NAME=${{ inputs.vm_name }}" >> $GITHUB_ENV
+            echo "VM_SIZE=${{ inputs.vm_size }}" >> $GITHUB_ENV
+            echo "REGION=${{ inputs.region }}" >> $GITHUB_ENV
+          fi
+      - name: Fetch RITM details
+        id: fetch
+        working-directory: track-A-vm-provisioning
+        run: python scripts/fetch_request.py
+      - uses: hashicorp/setup-terraform@v3
+      - name: Write SSH public key tfvar
+        working-directory: track-A-vm-provisioning/terraform
+        run: |
+          echo "ssh_public_key = \"${{ secrets.VM_SSH_PUBLIC_KEY }}\"" >> terraform.tfvars
+      - name: Terraform Init
+        working-directory: track-A-vm-provisioning/terraform
+        run: terraform init
+      - name: Terraform Apply
+        working-directory: track-A-vm-provisioning/terraform
+        run: terraform apply -auto-approve
+      - name: Capture outputs
+        id: tf
+        working-directory: track-A-vm-provisioning/terraform
+        run: |
+          echo "vm_name=$(terraform output -raw vm_name)" >> "$GITHUB_OUTPUT"
+          echo "private_ip=$(terraform output -raw private_ip)" >> "$GITHUB_OUTPUT"
+          echo "vm_size=$(terraform output -raw vm_size)" >> "$GITHUB_OUTPUT"
+          echo "location=$(terraform output -raw location)" >> "$GITHUB_OUTPUT"
+      - name: Update ServiceNow
+        working-directory: track-A-vm-provisioning
+        env:
+          RITM_SYS_ID: ${{ steps.fetch.outputs.ritm_sys_id }}
+          VM_NAME: ${{ steps.tf.outputs.vm_name }}
+          VM_IP: ${{ steps.tf.outputs.private_ip }}
+          VM_SIZE: ${{ steps.tf.outputs.vm_size }}
+          VM_LOCATION: ${{ steps.tf.outputs.location }}
+        run: python scripts/update_servicenow.py
