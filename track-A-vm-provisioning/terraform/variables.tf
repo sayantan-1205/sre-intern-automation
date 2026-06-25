@@ -6,10 +6,10 @@ variable "vm_name" {
 variable "vm_size" {
   description = "Azure VM size. Keep it small/cheap."
   type        = string
-  default     = "Standard_B1s"
+  default     = "Standard_B2as_v2"
   validation {
-    condition     = contains(["Standard_B1s", "Standard_B2s"], var.vm_size)
-    error_message = "For cost safety this training only allows Standard_B1s or Standard_B2s."
+    condition     = contains(["Standard_B1s", "Standard_B2s", "Standard_B1s_v2", "Standard_B2s_v2", "Standard_B2as_v2"], var.vm_size)
+    error_message = "For cost safety this training only allows Standard_B1s, Standard_B2s, Standard_B1s_v2, Standard_B2s_v2, or Standard_B2as_v2."
   }
 }
 variable "region" {
