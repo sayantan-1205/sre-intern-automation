@@ -1,0 +1,54 @@
+name: patch-os
+on:
+  repository_dispatch:
+    types: [patch_os]
+  workflow_dispatch:
+    inputs:
+      change_number:
+        description: 'ServiceNow Change Request Number (e.g. CHG0030001)'
+        required: true
+        type: string
+permissions:
+  contents: read
+env:
+  SNOW_INSTANCE: ${{ secrets.SNOW_INSTANCE }}
+  SNOW_USER: ${{ secrets.SNOW_USER }}
+  SNOW_PASSWORD: ${{ secrets.SNOW_PASSWORD }}
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install -r track-B-os-patching/scripts/requirements.txt
+          pip install ansible
+      - name: Resolve Inputs
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            echo "CHANGE_NUMBER=${{ github.event.client_payload.change_number }}" >> $GITHUB_ENV
+          else
+            echo "CHANGE_NUMBER=${{ inputs.change_number }}" >> $GITHUB_ENV
+          fi
+      - name: Fetch Change details & Build Inventory
+        id: fetch
+        working-directory: track-B-os-patching
+        run: python scripts/fetch_change.py
+      - name: Write Private SSH Key for Ansible
+        working-directory: track-B-os-patching
+        run: |
+          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > private_key.pem
+          chmod 600 private_key.pem
+      - name: Run Ansible Playbook
+        working-directory: track-B-os-patching/ansible
+        run: ansible-playbook -i inventory.ini patch.yml
+      - name: Update ServiceNow Change Request
+        if: always() && steps.fetch.conclusion == 'success'
+        working-directory: track-B-os-patching
+        env:
+          CHANGE_SYS_ID: ${{ steps.fetch.outputs.change_sys_id }}
+        run: python scripts/update_change.py

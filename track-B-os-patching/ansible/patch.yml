@@ -1,0 +1,41 @@
+---
+- name: OS Patching Playbook
+  hosts: all
+  become: yes
+  vars:
+    report_file: "patch_report.json"
+  tasks:
+    - name: Get kernel version before patching
+      command: uname -r
+      register: kernel_before_out
+      changed_when: false
+    - name: Count packages to be upgraded (Simulation)
+      shell: apt-get -s upgrade | grep -c "^Inst" || true
+      register: pkg_count_out
+      changed_when: false
+    - name: Update apt cache and upgrade all packages
+      apt:
+        update_cache: yes
+        upgrade: dist
+      register: apt_out
+    - name: Get kernel version after patching
+      command: uname -r
+      register: kernel_after_out
+      changed_when: false
+    - name: Check if a system reboot is required
+      stat:
+        path: /var/run/reboot-required
+      register: reboot_out
+    - name: Write patch compliance report to pipeline host
+      delegate_to: localhost
+      become: no
+      copy:
+        content: |
+          {
+            "packages_updated": {{ pkg_count_out.stdout | int }},
+            "reboot_required": {{ reboot_out.stat.exists | to_json }},
+            "kernel_before": "{{ kernel_before_out.stdout | trim }}",
+            "kernel_after": "{{ kernel_after_out.stdout | trim }}",
+            "status": "Success"
+          }
+        dest: "../{{ report_file }}"
