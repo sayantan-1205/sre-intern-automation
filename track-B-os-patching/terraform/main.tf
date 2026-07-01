@@ -1,4 +1,5 @@
 # main.tf — provision a target Linux VM with SSH access for Ansible
+
 terraform {
   required_version = ">= 1.5.0"
   required_providers {
@@ -7,10 +8,18 @@ terraform {
       version = ">= 3.0.0"
     }
   }
+  backend "azurerm" {
+    resource_group_name  = "rg-terraform-state"
+    storage_account_name = "sttfstate361194"
+    container_name       = "tfstate"
+    key                  = "track-b.terraform.tfstate"
+  }
 }
+
 provider "azurerm" {
   features {}
 }
+
 resource "azurerm_resource_group" "rg" {
   name     = "rg-${var.vm_name}"
   location = var.region
@@ -21,6 +30,7 @@ resource "azurerm_resource_group" "rg" {
     autodelete = "true"
   }
 }
+
 resource "azurerm_virtual_network" "vnet" {
   name                = "vnet-${var.vm_name}"
   address_space       = ["10.0.0.0/16"]
@@ -28,12 +38,14 @@ resource "azurerm_virtual_network" "vnet" {
   resource_group_name = azurerm_resource_group.rg.name
   tags                = azurerm_resource_group.rg.tags
 }
+
 resource "azurerm_subnet" "subnet" {
   name                 = "subnet-${var.vm_name}"
   resource_group_name  = azurerm_resource_group.rg.name
   virtual_network_name = azurerm_virtual_network.vnet.name
   address_prefixes     = ["10.0.1.0/24"]
 }
+
 resource "azurerm_public_ip" "pip" {
   count               = var.create_public_ip ? 1 : 0
   name                = "pip-${var.vm_name}"
@@ -43,12 +55,14 @@ resource "azurerm_public_ip" "pip" {
   sku                 = "Standard"
   tags                = azurerm_resource_group.rg.tags
 }
+
 resource "azurerm_network_security_group" "nsg" {
   count               = var.create_public_ip ? 1 : 0
   name                = "nsg-${var.vm_name}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tags                = azurerm_resource_group.rg.tags
+
   security_rule {
     name                       = "SSH"
     priority                   = 1001
@@ -61,11 +75,13 @@ resource "azurerm_network_security_group" "nsg" {
     destination_address_prefix = "*"
   }
 }
+
 resource "azurerm_network_interface" "nic" {
   name                = "nic-${var.vm_name}"
   location            = azurerm_resource_group.rg.location
   resource_group_name = azurerm_resource_group.rg.name
   tags                = azurerm_resource_group.rg.tags
+
   ip_configuration {
     name                          = "internal"
     subnet_id                     = azurerm_subnet.subnet.id
@@ -73,11 +89,13 @@ resource "azurerm_network_interface" "nic" {
     public_ip_address_id          = var.create_public_ip ? azurerm_public_ip.pip[0].id : null
   }
 }
+
 resource "azurerm_network_interface_security_group_association" "nsg_assoc" {
   count                     = var.create_public_ip ? 1 : 0
   network_interface_id      = azurerm_network_interface.nic.id
   network_security_group_id = azurerm_network_security_group.nsg[0].id
 }
+
 resource "azurerm_linux_virtual_machine" "vm" {
   name                = var.vm_name
   resource_group_name = azurerm_resource_group.rg.name
@@ -88,14 +106,17 @@ resource "azurerm_linux_virtual_machine" "vm" {
   network_interface_ids = [
     azurerm_network_interface.nic.id,
   ]
+
   admin_ssh_key {
     username   = var.admin_username
     public_key = var.ssh_public_key
   }
+
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Standard_LRS"
   }
+
   source_image_reference {
     publisher = "Canonical"
     offer     = "0001-com-ubuntu-server-jammy"
